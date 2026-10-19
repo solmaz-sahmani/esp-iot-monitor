@@ -24,6 +24,9 @@
 static const char *TAG = "IOT_MONITOR";
 static EventGroupHandle_t wifi_events;
 
+static uint32_t tx_success_count = 0;
+static uint32_t tx_failure_count = 0;
+
 //static const char *TAG = "DHT11";
 
 static void wifi_event_handler(
@@ -143,6 +146,7 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_http_client_set_header(
         client, "Content-Type", "application/json"));
 
+
     while (true) {
         /* Wait for connectivity before every transmission. */
         xEventGroupWaitBits(
@@ -161,40 +165,58 @@ void app_main(void)
             char payload[128];
 
             snprintf(payload, sizeof(payload),
-                     "{\"device_id\":\"esp32-01\","
-                     "\"temperature_c\":%u,"
-                     "\"humidity_percent\":%u}",
-                     (unsigned)temperature,
-                     (unsigned)humidity);
+                    "{\"device_id\":\"esp32-01\","
+                    "\"temperature_c\":%u,"
+                    "\"humidity_percent\":%u}",
+                    (unsigned)temperature,
+                    (unsigned)humidity);
 
-            ESP_ERROR_CHECK_WITHOUT_ABORT(
-                esp_http_client_set_post_field(
-                    client, payload, strlen(payload)));
+            /* Set the HTTP request body. */
+            err = esp_http_client_set_post_field(
+                client, payload, strlen(payload));
 
-            err = esp_http_client_perform(client);
+            /* Send the HTTP POST request. */
+            if (err == ESP_OK) {
+                err = esp_http_client_perform(client);
+            }
 
             if (err == ESP_OK) {
-                int status =
-                    esp_http_client_get_status_code(client);
+                int status = esp_http_client_get_status_code(client);
 
-                if (status == 200) {
+                if (status >= 200 && status < 300) {
+                    tx_success_count++;
+
                     ESP_LOGI(TAG,
-                             "Sent: %u C, %u %% RH",
-                             (unsigned)temperature,
-                             (unsigned)humidity);
+                            "HTTP OK: %u C, %u %% RH | success=%lu failure=%lu",
+                            (unsigned)temperature,
+                            (unsigned)humidity,
+                            (unsigned long)tx_success_count,
+                            (unsigned long)tx_failure_count);
                 } else {
-                    ESP_LOGW(TAG, "Server HTTP status: %d",
-                             status);
+                    tx_failure_count++;
+
+                    ESP_LOGW(TAG,
+                            "HTTP status=%d | success=%lu failure=%lu",
+                            status,
+                            (unsigned long)tx_success_count,
+                            (unsigned long)tx_failure_count);
                 }
             } else {
-                ESP_LOGE(TAG, "HTTP request failed: %s",
-                         esp_err_to_name(err));
+                tx_failure_count++;
+
+                ESP_LOGE(TAG,
+                        "HTTP failed: %s | success=%lu failure=%lu",
+                        esp_err_to_name(err),
+                        (unsigned long)tx_success_count,
+                        (unsigned long)tx_failure_count);
             }
         } else {
-            ESP_LOGW(TAG, "Sensor read failed: %s",
-                     esp_err_to_name(err));
+            /* Report sensor errors without restarting the device. */
+            ESP_LOGW(TAG, "DHT11 read failed: %s",
+                    esp_err_to_name(err));
         }
 
+        /* Sample and transmit approximately every two seconds. */
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
 }
