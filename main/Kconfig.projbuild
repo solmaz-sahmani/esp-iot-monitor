@@ -1,0 +1,11 @@
+menu "IoT Monitoring Node"
+
+    config MONITOR_WIFI_SSID
+        string "Wi-Fi SSID"
+        default ""
+
+    config MONITOR_WIFI_PASSWORD
+        string "Wi-Fi password"
+        default ""
+
+endmenu
